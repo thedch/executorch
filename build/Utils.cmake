@@ -240,10 +240,7 @@ function(resolve_buck2)
   )
 
   if(resolve_buck2_exit_code EQUAL 0)
-    set(BUCK2
-        ${resolve_buck2_output}
-        PARENT_SCOPE
-    )
+    set(buck2 ${resolve_buck2_output})
     message(STATUS "Resolved buck2 as ${resolve_buck2_output}.")
   elseif(resolve_buck2_exit_code EQUAL 2)
     # Wrong buck version used. Stop here to ensure that the user sees the error.
@@ -254,17 +251,28 @@ function(resolve_buck2)
     message(WARNING "${resolve_buck2_error}")
 
     if("${BUCK2}" STREQUAL "")
-      set(BUCK2
-          "buck2"
-          PARENT_SCOPE
-      )
+      set(buck2 "buck2")
     endif()
   endif()
+
+  set(BUCK2 "${buck2}" PARENT_SCOPE)
+
+  # buck2 sometimes fails because it can't find this directory, even though
+  # it should be the one creating it.
+  execute_process(
+    COMMAND "mkdir -p '${executorch_root}/buck-out/v2'"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND_ECHO STDOUT
+  )
 
   # The buck2 daemon can get stuck. Killing it can help.
   message(STATUS "Killing buck2 daemon")
   execute_process(
-    COMMAND "${BUCK2} kill" WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    # Note that we need to use the local buck2 variable. BUCK2 is only set in
+    # the parent scope, and is empty in this scope.
+    COMMAND "${buck2} kill"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND_ECHO STDOUT
   )
 endfunction()
 
