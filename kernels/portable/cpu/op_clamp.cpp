@@ -66,6 +66,10 @@ ET_NODISCARD bool check_bounds(
   return is_valid;
 }
 
+template <typename To, typename From>
+To load_and_convert(const void* fromPtr) {
+  return static_cast<To>(*reinterpret_cast<const From*>(fromPtr));
+}
 } // namespace
 
 Tensor& clamp_out(
@@ -214,43 +218,42 @@ Tensor& clamp_tensor_out(
 
   constexpr auto name = "clamp.Tensor_out";
 
-  ET_SWITCH_REALHB_TYPES(in_type, ctx, name, CTYPE_IN, [&]() {
-    ET_SWITCH_REALHB_TYPES(min_type, ctx, name, CTYPE_MIN, [&]() {
-      ET_SWITCH_REALHB_TYPES(max_type, ctx, name, CTYPE_MAX, [&]() {
-        ET_SWITCH_REALHB_TYPES(out_type, ctx, name, CTYPE_OUT, [&]() {
-          apply_ternary_elementwise_fn<CTYPE_OUT>(
-              [has_min, has_max](
-                  const CTYPE_OUT val_in,
-                  const CTYPE_OUT val_min,
-                  const CTYPE_OUT val_max) {
-                CTYPE_OUT val_out = val_in;
-                if (has_min) {
-                  val_out = utils::max_override(val_out, val_min);
-                }
-                if (has_max) {
-                  val_out = utils::min_override(val_out, val_max);
-                }
-                return val_out;
-              },
-              in,
-              min,
-              max,
-              out,
-              [](const void* inPtr) {
-                return static_cast<CTYPE_OUT>(
-                    *reinterpret_cast<const CTYPE_IN*>(inPtr));
-              },
-              [](const void* minPtr) {
-                return static_cast<CTYPE_OUT>(
-                    *reinterpret_cast<const CTYPE_MIN*>(minPtr));
-              },
-              [](const void* maxPtr) {
-                return static_cast<CTYPE_OUT>(
-                    *reinterpret_cast<const CTYPE_MAX*>(maxPtr));
-              });
-        });
-      });
+  ET_SWITCH_REALHB_TYPES(out_type, ctx, name, CTYPE_OUT, [&]() {
+    using ToCtypeOutFn = CTYPE_OUT (*)(const void*);
+    ToCtypeOutFn in_to_out;
+    ET_SWITCH_REALHB_TYPES(in_type, ctx, name, CTYPE_IN, [&]() {
+      in_to_out = load_and_convert<CTYPE_OUT, CTYPE_IN>;
     });
+    ToCtypeOutFn min_to_out;
+    ET_SWITCH_REALHB_TYPES(min_type, ctx, name, CTYPE_MIN, [&]() {
+      min_to_out = load_and_convert<CTYPE_OUT, CTYPE_MIN>;
+    });
+    ToCtypeOutFn max_to_out;
+    ET_SWITCH_REALHB_TYPES(max_type, ctx, name, CTYPE_MAX, [&]() {
+      max_to_out = load_and_convert<CTYPE_OUT, CTYPE_MAX>;
+    });
+
+    apply_ternary_elementwise_fn<CTYPE_OUT>(
+        [has_min, has_max](
+            const CTYPE_OUT val_in,
+            const CTYPE_OUT val_min,
+            const CTYPE_OUT val_max) {
+          CTYPE_OUT val_out = val_in;
+          if (has_min) {
+            val_out = utils::max_override(val_out, val_min);
+          }
+          if (has_max) {
+            val_out = utils::min_override(val_out, val_max);
+          }
+          return val_out;
+        },
+        in,
+        min,
+        max,
+        out,
+        in_to_out,
+        min_to_out,
+        max_to_out);
   });
 
   return out;
